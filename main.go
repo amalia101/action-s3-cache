@@ -37,7 +37,6 @@ func main() {
 		if err := PutTag(action.Key, action.Bucket, "LastUsedDate", today); err != nil {
 			log.Fatal(err)
 		}
-
 	case GetAction:
 		exists, err := ObjectExists(action.Key, action.Bucket)
 		if err != nil {
