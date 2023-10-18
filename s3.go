@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
@@ -9,12 +10,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/pkg/errors"
 )
 
 // PutObject - Upload object to s3 bucket
 func PutObject(key, bucket, s3Class string) error {
 	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		return err
+	}
 	session := s3.NewFromConfig(cfg)
 
 	file, err := os.Open(key)
@@ -23,14 +28,18 @@ func PutObject(key, bucket, s3Class string) error {
 	}
 	defer file.Close()
 
-	i := &s3.PutObjectInput{
+	putInput := &s3.PutObjectInput{
 		Bucket:       aws.String(bucket),
 		Key:          aws.String(key),
 		Body:         file,
 		StorageClass: types.StorageClass(s3Class),
 	}
 
-	_, err = session.PutObject(context.TODO(), i)
+	_, err = session.PutObject(context.TODO(), putInput)
+	if err != nil {
+		return err
+	}
+
 	if err == nil {
 		log.Print("Cache saved successfully")
 	}
@@ -50,7 +59,7 @@ func GetObject(key, bucket string) error {
 
 	size, err := session.GetObject(context.TODO(), i)
 
-	log.Printf("Cache downloaded successfully, containing %d bytes", size)
+	log.Printf("Cache downloaded successfully, containing %d bytes", size.ContentLength)
 
 	return err
 }
@@ -91,4 +100,59 @@ func ObjectExists(key, bucket string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func PutTag(objectKey, bucket, tagKey, tagValue string) error {
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		return err
+	}
+	session := s3.NewFromConfig(cfg)
+
+	putTaggingInput := &s3.PutObjectTaggingInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(objectKey),
+		Tagging: &s3_types.Tagging{
+			TagSet: []s3_types.Tag{
+				{
+					Key:   aws.String(tagKey),
+					Value: aws.String(tagValue),
+				},
+			},
+		},
+	}
+
+	_, err = session.PutObjectTagging(context.TODO(), putTaggingInput)
+
+	if err == nil {
+		log.Printf("Object %s tag %s updated to %s", objectKey, tagKey, tagValue)
+	}
+
+	return err
+}
+
+func GetTag(objectKey, bucket, tagKey string) (string, error) {
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		return "", err
+	}
+	session := s3.NewFromConfig(cfg)
+
+	getTaggingInput := &s3.GetObjectTaggingInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(objectKey),
+	}
+
+	tags, err := session.GetObjectTagging(context.TODO(), getTaggingInput)
+	if err != nil {
+		return "", err
+	}
+
+	for _, tag := range tags.TagSet {
+		if *tag.Key == tagKey {
+			return *tag.Value, nil
+		}
+	}
+
+	return "", fmt.Errorf("Tag %s not found.", tagKey)
 }

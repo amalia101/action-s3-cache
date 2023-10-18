@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -29,6 +30,14 @@ func main() {
 		if err := PutObject(action.Key, action.Bucket, action.S3Class); err != nil {
 			log.Fatal(err)
 		}
+
+		currentTime := time.Now()
+		today := currentTime.Format("02-01-2006") // MM-DD-YYYY
+
+		if err := PutTag(action.Key, action.Bucket, "LastUsedDate", today); err != nil {
+			log.Fatal(err)
+		}
+
 	case GetAction:
 		exists, err := ObjectExists(action.Key, action.Bucket)
 		if err != nil {
@@ -43,6 +52,17 @@ func main() {
 
 			if err := Unzip(action.Key); err != nil {
 				log.Fatal(err)
+			}
+
+			currentTime := time.Now()
+			today := currentTime.Format("02-01-2006") // MM-DD-YYYY
+
+			tag, _ := GetTag(action.Key, action.Bucket, "LastUsedDate")
+
+			if tag != today {
+				if err := PutTag(action.Key, action.Bucket, "LastUsedDate", today); err != nil {
+					log.Fatal(err)
+				}
 			}
 		} else {
 			log.Printf("No caches found for the following key: %s", action.Key)
