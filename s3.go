@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
 
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -94,17 +92,14 @@ func ObjectExists(key, bucket string) (bool, error) {
 }
 
 func PutTag(objectKey, bucket, tagKey, tagValue string) error {
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		return err
-	}
-	session := s3.NewFromConfig(cfg)
+	session := session.Must(session.NewSession())
+	service := s3.New(session)
 
 	putTaggingInput := &s3.PutObjectTaggingInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(objectKey),
-		Tagging: &s3_types.Tagging{
-			TagSet: []s3_types.Tag{
+		Tagging: &s3.Tagging{
+			TagSet: []*s3.Tag{
 				{
 					Key:   aws.String(tagKey),
 					Value: aws.String(tagValue),
@@ -113,7 +108,7 @@ func PutTag(objectKey, bucket, tagKey, tagValue string) error {
 		},
 	}
 
-	_, err = session.PutObjectTagging(context.TODO(), putTaggingInput)
+	_, err := service.PutObjectTagging(putTaggingInput)
 
 	if err == nil {
 		log.Printf("Object %s tag %s updated to %s", objectKey, tagKey, tagValue)
@@ -123,18 +118,15 @@ func PutTag(objectKey, bucket, tagKey, tagValue string) error {
 }
 
 func GetTag(objectKey, bucket, tagKey string) (string, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		return "", err
-	}
-	session := s3.NewFromConfig(cfg)
+	session := session.Must(session.NewSession())
+	service := s3.New(session)
 
 	getTaggingInput := &s3.GetObjectTaggingInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(objectKey),
 	}
 
-	tags, err := session.GetObjectTagging(context.TODO(), getTaggingInput)
+	tags, err := service.GetObjectTagging(getTaggingInput)
 	if err != nil {
 		return "", err
 	}
