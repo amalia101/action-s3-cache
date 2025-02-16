@@ -1,76 +1,92 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
+	"os/exec"
 )
 
 func main() {
-	action := Action{
-		Action:    os.Getenv("ACTION"),
-		Bucket:    os.Getenv("BUCKET"),
-		S3Class:   os.Getenv("S3_CLASS"),
-		Key:       fmt.Sprintf("%s.zip", os.Getenv("KEY")),
-		Artifacts: strings.Split(strings.TrimSpace(os.Getenv("ARTIFACTS")), "\n"),
+	action := flag.String("action", "", "Action to perform: put, get, delete")
+	bucket := flag.String("bucket", "", "S3 bucket name")
+	s3Class := flag.String("s3-class", "STANDARD", "S3 storage class")
+	key := flag.String("key", "", "Cache key (without .zip)")
+	artifacts := flag.String("artifacts", "", "Comma-separated list of artifact paths")
+
+	flag.Parse()
+
+	if *action == "" || *bucket == "" || *key == "" {
+		log.Fatal("Missing required arguments: --action, --bucket, and --key are required")
 	}
 
-	switch act := action.Action; act {
-	case PutAction:
-		if len(action.Artifacts[0]) <= 0 {
-			log.Fatal("No artifacts patterns provided")
-		}
+	artifactList := strings.Split(strings.TrimSpace(*artifacts), ",")
 
-		if err := Zip(action.Key, action.Artifacts); err != nil {
+	zipKey := fmt.Sprintf("%s.zip", *key)
+
+	switch *action {
+	case "put":
+		if len(artifactList) == 0 || artifactList[0] == "" {
+			log.Fatal("No artifacts provided")
+		}
+	
+		tarCmd := fmt.Sprintf("tar -czvf %s %s", zipKey, strings.Join(artifactList, " "))
+		if err := runShellCommand(tarCmd); err != nil {
+			log.Fatal("Failed to create tar.gz:", err)
+		}
+	
+		if err := PutObject(zipKey, *bucket, *s3Class); err != nil {
 			log.Fatal(err)
 		}
-
-		if err := PutObject(action.Key, action.Bucket, action.S3Class); err != nil {
+	
+		today := time.Now().Format("02-01-2006")
+		if err := PutTag(zipKey, *bucket, "LastUsedDate", today); err != nil {
 			log.Fatal(err)
-		}
+		}	
 
-		currentTime := time.Now()
-		today := currentTime.Format("02-01-2006") // MM-DD-YYYY
-
-		if err := PutTag(action.Key, action.Bucket, "LastUsedDate", today); err != nil {
-			log.Fatal(err)
-		}
-	case GetAction:
-		exists, err := ObjectExists(action.Key, action.Bucket)
+	case "get":
+		exists, err := ObjectExists(zipKey, *bucket)
 		if err != nil {
 			log.Fatal(err)
 		}
-
-		// Get and and unzip if object exists
+	
 		if exists {
-			if err := GetObject(action.Key, action.Bucket); err != nil {
+			if err := GetObject(zipKey, *bucket); err != nil {
 				log.Fatal(err)
 			}
-
-			if err := Unzip(action.Key); err != nil {
-				log.Fatal(err)
+	
+			extractCmd := fmt.Sprintf("tar -xzvf %s", zipKey)
+			if err := runShellCommand(extractCmd); err != nil {
+				log.Fatal("Failed to extract tar.gz:", err)
 			}
-
-			currentTime := time.Now()
-			today := currentTime.Format("02-01-2006") // MM-DD-YYYY
-
-			tag, _ := GetTag(action.Key, action.Bucket, "LastUsedDate")
-
+	
+			today := time.Now().Format("02-01-2006")
+			tag, _ := GetTag(zipKey, *bucket, "LastUsedDate")
+	
 			if tag != today {
-				if err := PutTag(action.Key, action.Bucket, "LastUsedDate", today); err != nil {
+				if err := PutTag(zipKey, *bucket, "LastUsedDate", today); err != nil {
 					log.Fatal(err)
 				}
 			}
 		} else {
-			log.Printf("No caches found for the following key: %s", action.Key)
-		}
-	case DeleteAction:
-		if err := DeleteObject(action.Key, action.Bucket); err != nil {
+			log.Printf("No caches found for key: %s", zipKey)
+		}	
+
+	case "delete":
+		if err := DeleteObject(zipKey, *bucket); err != nil {
 			log.Fatal(err)
 		}
+
 	default:
-		log.Fatalf("Action \"%s\" is not allowed. Valid options are: [%s, %s, %s]", act, PutAction, DeleteAction, GetAction)
+		log.Fatalf("Invalid action: %s. Allowed: [put, get, delete]", *action)
 	}
+}
+
+func runShellCommand(cmdStr string) error {
+	cmd := exec.Command("sh", "-c", cmdStr)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Run()
 }
